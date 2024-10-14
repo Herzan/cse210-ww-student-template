@@ -232,9 +232,9 @@
             "request": "launch",
             "preLaunchTask": "build",
             // If you have changed target frameworks, make sure to update the program path.
-            "program": "${workspaceFolder}/prove/Develop03/bin/Debug/net8.0/Develop03.dll",
+            "program": "${workspaceFolder}/foundation/Foundation1/bin/Debug/net8.0/Foundation1.dll",
             "args": [],
-            "cwd": "${workspaceFolder}/prove/Develop03",
+            "cwd": "${workspaceFolder}/foundation/Foundation1",
             // For more information about the 'console' field, see https://aka.ms/VSCode-CS-LaunchJson-Console
             "console": "internalConsole",
             "stopAtEntry": false
