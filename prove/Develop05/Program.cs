@@ -73,7 +73,7 @@ class MindfulnessActivity
         for (int i = seconds; i > 0; i--)
         {
             Console.WriteLine(i);
-            Thread.Sleep(1000);
+            Thread.Sleep(10);
         }
     }
 }
