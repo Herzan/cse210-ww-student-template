@@ -1,73 +1,98 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+// Enum for Priority Levels
+public enum Priority
+{
+    High,
+    Medium,
+    Low
+}
 
 // Base class for Goals
+[JsonConverter(typeof(GoalConverter))]
 public abstract class Goal
 {
     protected string _name;
     protected int _points;
     protected bool _isComplete;
-    protected string _category; // New property for category
+    protected string _category;
+    protected Priority _priority; // New property for goal priority
 
-    protected Goal(string name, int points, string category)
+    protected Goal(string name, int points, string category, Priority priority)
     {
         _name = name;
         _points = points;
         _isComplete = false;
         _category = category;
+        _priority = priority;
     }
 
     public string Name => _name;
     public int Points => _points;
     public bool IsComplete => _isComplete;
-    public string Category => _category; // New property
+    public string Category => _category;
+    public Priority GoalPriority => _priority; // New property
 
     public abstract void RecordEvent();
-    public abstract void EditGoal(string newName, int newPoints, string newCategory); // Updated method
+    public abstract void EditGoal(string newName, int newPoints, string newCategory, Priority newPriority); // Updated method
 
     public double Progress => _isComplete ? 100 : 0; // Progress percentage
 
     public override string ToString()
     {
-        return $"{Name} - {Points} points [{Category}]" + (IsComplete ? " (Completed)" : $" (Progress: {Progress}%)");
+        return $"{Name} - {Points} points [{Category}] - Priority: {GoalPriority}" +
+               (IsComplete ? " (Completed)" : $" (Progress: {Progress}%)");
+    }
+
+    // Helper method for displaying a visual progress bar
+    public string DisplayProgressBar()
+    {
+        int completedBars = (int)(Progress / 10);
+        return $"[{new string('#', completedBars)}{new string('-', 10 - completedBars)}]";
     }
 }
 
 // Simple Goal
 public class SimpleGoal : Goal
 {
-    public SimpleGoal(string name, int points, string category) : base(name, points, category) { }
+    public SimpleGoal(string name, int points, string category, Priority priority) : base(name, points, category, priority) { }
 
     public override void RecordEvent()
     {
-        _isComplete = true; // Mark as complete
+        _isComplete = true;
         Console.WriteLine($"{Name} is marked as complete! You earned {Points} points.");
+        Console.WriteLine("🎉 Congratulations! Keep up the good work!");
     }
 
-    public override void EditGoal(string newName, int newPoints, string newCategory)
+    public override void EditGoal(string newName, int newPoints, string newCategory, Priority newPriority)
     {
         _name = newName;
         _points = newPoints;
-        _category = newCategory; // Update category
+        _category = newCategory;
+        _priority = newPriority;
     }
 }
 
 // Eternal Goal
 public class EternalGoal : Goal
 {
-    public EternalGoal(string name, int points, string category) : base(name, points, category) { }
+    public EternalGoal(string name, int points, string category, Priority priority) : base(name, points, category, priority) { }
 
     public override void RecordEvent()
     {
         Console.WriteLine($"{Name} recorded! You earned {Points} points this time.");
     }
 
-    public override void EditGoal(string newName, int newPoints, string newCategory)
+    public override void EditGoal(string newName, int newPoints, string newCategory, Priority newPriority)
     {
         _name = newName;
         _points = newPoints;
-        _category = newCategory; // Update category
+        _category = newCategory;
+        _priority = newPriority;
     }
 }
 
@@ -77,7 +102,8 @@ public class ChecklistGoal : Goal
     private int _timesCompleted;
     private int _requiredTimes;
 
-    public ChecklistGoal(string name, int points, string category, int requiredTimes) : base(name, points, category)
+    public ChecklistGoal(string name, int points, string category, Priority priority, int requiredTimes)
+        : base(name, points, category, priority)
     {
         _requiredTimes = requiredTimes;
         _timesCompleted = 0;
@@ -90,8 +116,13 @@ public class ChecklistGoal : Goal
             _timesCompleted++;
             if (_timesCompleted == _requiredTimes)
             {
-                _isComplete = true; // Mark as complete
+                _isComplete = true;
                 Console.WriteLine($"{Name} is completed! You earned {Points} points.");
+                Console.WriteLine("✨ Milestone achieved! You finished the entire checklist!");
+            }
+            else if (_timesCompleted == _requiredTimes / 2)
+            {
+                Console.WriteLine($"{Name} recorded! Halfway there! Keep it up!");
             }
             else
             {
@@ -104,11 +135,12 @@ public class ChecklistGoal : Goal
         }
     }
 
-    public override void EditGoal(string newName, int newPoints, string newCategory)
+    public override void EditGoal(string newName, int newPoints, string newCategory, Priority newPriority)
     {
         _name = newName;
         _points = newPoints;
-        _category = newCategory; // Update category
+        _category = newCategory;
+        _priority = newPriority;
     }
 
     public string GetProgress()
@@ -119,18 +151,51 @@ public class ChecklistGoal : Goal
     public double progress => (double)_timesCompleted / _requiredTimes * 100; // Progress percentage
 }
 
+// JsonConverter implementation for handling polymorphism
+public class GoalConverter : JsonConverter<Goal>
+{
+    public override Goal Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        using (JsonDocument doc = JsonDocument.ParseValue(ref reader))
+        {
+            var root = doc.RootElement;
+            string type = root.GetProperty("Type").GetString();
+
+            switch (type)
+            {
+                case "SimpleGoal":
+                    return JsonSerializer.Deserialize<SimpleGoal>(root.GetRawText(), options);
+                case "EternalGoal":
+                    return JsonSerializer.Deserialize<EternalGoal>(root.GetRawText(), options);
+                case "ChecklistGoal":
+                    return JsonSerializer.Deserialize<ChecklistGoal>(root.GetRawText(), options);
+                default:
+                    throw new NotSupportedException($"Goal type '{type}' is not supported");
+            }
+        }
+    }
+
+    public override void Write(Utf8JsonWriter writer, Goal value, JsonSerializerOptions options)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("Type", value.GetType().Name);
+        JsonSerializer.Serialize(writer, (object)value, value.GetType(), options);
+        writer.WriteEndObject();
+    }
+}
+
 // Goal Tracker Class
 public class GoalTracker
 {
     private List<Goal> _goals;
     private int _totalPoints;
-    private List<string> _history; // New history for completed goals
+    private List<string> _history;
 
     public GoalTracker()
     {
         _goals = new List<Goal>();
         _totalPoints = 0;
-        _history = new List<string>(); // Initialize history
+        _history = new List<string>();
     }
 
     public void AddGoal(Goal goal)
@@ -149,131 +214,43 @@ public class GoalTracker
 
         _goals[index].RecordEvent();
         _totalPoints += _goals[index].Points;
-        _history.Add($"{DateTime.Now}: Completed '{_goals[index].Name}' and earned {_goals[index].Points} points."); // Add to history
+        _history.Add($"{DateTime.Now}: Completed '{_goals[index].Name}' and earned {_goals[index].Points} points.");
         Console.WriteLine($"Total Points: {_totalPoints}");
-    }
-
-    public void EditGoal(int index)
-    {
-        if (index < 0 || index >= _goals.Count)
-        {
-            Console.WriteLine("Invalid goal index.");
-            return;
-        }
-
-        Console.Write("Enter new name for the goal: ");
-        string newName = Console.ReadLine();
-        int newPoints = GetValidPoints("Enter new points for the goal: ");
-        Console.Write("Enter new category for the goal: "); // New input for category
-        string newCategory = Console.ReadLine();
-        _goals[index].EditGoal(newName, newPoints, newCategory);
-        Console.WriteLine("Goal updated successfully.");
-    }
-
-    public void DeleteGoal(int index)
-    {
-        if (index < 0 || index >= _goals.Count)
-        {
-            Console.WriteLine("Invalid goal index.");
-            return;
-        }
-
-        Console.WriteLine($"{_goals[index].Name} has been deleted from your goals.");
-        _goals.RemoveAt(index);
     }
 
     public void DisplayGoals()
     {
-        Console.WriteLine("Your Goals:");
-        for (int i = 0; i < _goals.Count; i++)
+        Console.WriteLine("Your Goals (Grouped by Category):");
+        foreach (var categoryGroup in _goals.GroupBy(g => g.Category))
         {
-            Console.WriteLine($"{i + 1}. {_goals[i]}");
-            if (_goals[i] is ChecklistGoal checklistGoal)
+            Console.WriteLine($"\nCategory: {categoryGroup.Key}");
+            foreach (var goal in categoryGroup)
             {
-                Console.WriteLine(checklistGoal.GetProgress());
+                Console.WriteLine($"{goal} | {goal.DisplayProgressBar()}");
             }
         }
     }
 
-    public void DisplayHistory() // New method to display goal history
+    public void SaveToFile(string fileName)
     {
-        Console.WriteLine("Goal History:");
-        foreach (var record in _history)
-        {
-            Console.WriteLine(record);
-        }
+        var options = new JsonSerializerOptions { WriteIndented = true };
+        string json = JsonSerializer.Serialize(this, options);
+        File.WriteAllText(fileName, json);
+        Console.WriteLine("Goals successfully saved to file.");
     }
 
-    public void SaveGoals(string filename)
+    public static GoalTracker LoadFromFile(string fileName)
     {
-        try
-        {
-            using (StreamWriter outputFile = new StreamWriter(filename))
-            {
-                foreach (var goal in _goals)
-                {
-                    string progress = goal is ChecklistGoal checklist ? checklist.GetProgress() : "N/A";
-                    outputFile.WriteLine($"{goal.GetType().Name},{goal.Name},{goal.Points},{goal.Category},{progress}");
-                }
-            }
-            Console.WriteLine("Goals saved to file.");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error saving goals: {ex.Message}");
-        }
-    }
-
-    public void LoadGoals(string filename)
-    {
-        if (!File.Exists(filename))
+        if (!File.Exists(fileName))
         {
             Console.WriteLine("File not found.");
-            return;
+            return null;
         }
 
-        try
-        {
-            string[] lines = File.ReadAllLines(filename);
-            foreach (var line in lines)
-            {
-                var parts = line.Split(",");
-                if (parts.Length < 4)
-                {
-                    Console.WriteLine($"Invalid line format: {line}");
-                    continue;
-                }
-
-                string type = parts[0];
-                string name = parts[1];
-                int points = int.Parse(parts[2]);
-                string category = parts[3]; // Load category
-                Goal goal;
-
-                switch (type)
-                {
-                    case nameof(SimpleGoal):
-                        goal = new SimpleGoal(name, points, category);
-                        break;
-                    case nameof(EternalGoal):
-                        goal = new EternalGoal(name, points, category);
-                        break;
-                    case nameof(ChecklistGoal):
-                        int requiredTimes = parts.Length > 4 ? int.Parse(parts[4]) : 1; // Default to 1 if not specified
-                        goal = new ChecklistGoal(name, points, category, requiredTimes);
-                        break;
-                    default:
-                        Console.WriteLine($"Unknown goal type: {type}");
-                        continue;
-                }
-                AddGoal(goal);
-            }
-            Console.WriteLine("Goals loaded from file.");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error loading goals: {ex.Message}");
-        }
+        string json = File.ReadAllText(fileName);
+        GoalTracker tracker = JsonSerializer.Deserialize<GoalTracker>(json);
+        Console.WriteLine("Goals successfully loaded from file.");
+        return tracker;
     }
 
     public void DisplayMenu()
@@ -286,10 +263,9 @@ public class GoalTracker
             Console.WriteLine("3. Edit Goal");
             Console.WriteLine("4. Delete Goal");
             Console.WriteLine("5. Display Goals");
-            Console.WriteLine("6. Display History"); // New option for displaying history
-            Console.WriteLine("7. Save Goals");
-            Console.WriteLine("8. Load Goals");
-            Console.WriteLine("9. Exit");
+            Console.WriteLine("6. Save Goals");
+            Console.WriteLine("7. Load Goals");
+            Console.WriteLine("8. Exit");
             Console.Write("Select an option: ");
 
             string choice = Console.ReadLine();
@@ -311,15 +287,12 @@ public class GoalTracker
                     DisplayGoals();
                     break;
                 case "6":
-                    DisplayHistory(); // Call to display history
+                    SaveToFile("goals.json");
                     break;
                 case "7":
-                    SaveGoalsPrompt();
+                    LoadFromFile("goals.json");
                     break;
                 case "8":
-                    LoadGoalsPrompt();
-                    break;
-                case "9":
                     Console.WriteLine("Exiting program.");
                     return;
                 default:
@@ -334,88 +307,97 @@ public class GoalTracker
         Console.Write("Enter the name of the goal: ");
         string name = Console.ReadLine();
         int points = GetValidPoints("Enter the points for the goal: ");
-        Console.Write("Enter the category for the goal: "); // New input for category
+        Console.Write("Enter the category for the goal: ");
         string category = Console.ReadLine();
+        Console.WriteLine("Enter priority (High/Medium/Low): ");
+        Priority priority = (Priority)Enum.Parse(typeof(Priority), Console.ReadLine(), true);
 
-        Console.WriteLine("Select Goal Type:");
-        Console.WriteLine("1. Simple Goal");
-        Console.WriteLine("2. Eternal Goal");
-        Console.WriteLine("3. Checklist Goal");
-        string goalType = Console.ReadLine();
-
-        Goal goal;
-        switch (goalType)
+        Console.WriteLine("Choose goal type (1: Simple, 2: Eternal, 3: Checklist): ");
+        string typeChoice = Console.ReadLine();
+        switch (typeChoice)
         {
             case "1":
-                goal = new SimpleGoal(name, points, category);
+                AddGoal(new SimpleGoal(name, points, category, priority));
                 break;
             case "2":
-                goal = new EternalGoal(name, points, category);
+                AddGoal(new EternalGoal(name, points, category, priority));
                 break;
             case "3":
-                Console.Write("Enter the number of times this goal must be completed: ");
-                int requiredTimes = GetValidPoints("Enter the required times: ");
-                goal = new ChecklistGoal(name, points, category, requiredTimes);
+                Console.Write("Enter the required number of times to complete the checklist: ");
+                int requiredTimes = int.Parse(Console.ReadLine());
+                AddGoal(new ChecklistGoal(name, points, category, priority, requiredTimes));
                 break;
             default:
-                Console.WriteLine("Invalid goal type. Goal not added.");
-                return;
+                Console.WriteLine("Invalid goal type selected.");
+                break;
         }
+    }
 
-        AddGoal(goal);
+    private int GetValidPoints(string prompt)
+    {
+        int points;
+        Console.Write(prompt);
+        while (!int.TryParse(Console.ReadLine(), out points) || points < 0)
+        {
+            Console.Write("Invalid points. Please enter a positive integer: ");
+        }
+        return points;
     }
 
     private void RecordGoalEventPrompt()
     {
         DisplayGoals();
-        Console.Write("Enter the index of the goal to record an event: ");
-        int index = int.Parse(Console.ReadLine()) - 1;
-        RecordGoalEvent(index);
+        Console.Write("Enter the goal index to record an event: ");
+        int index = int.Parse(Console.ReadLine());
+        RecordGoalEvent(index - 1);
     }
 
     private void EditGoalPrompt()
     {
         DisplayGoals();
-        Console.Write("Enter the index of the goal to edit: ");
-        int index = int.Parse(Console.ReadLine()) - 1;
-        EditGoal(index);
+        Console.Write("Enter the goal index to edit: ");
+        int index = int.Parse(Console.ReadLine());
+        if (index < 1 || index > _goals.Count)
+        {
+            Console.WriteLine("Invalid index. Please try again.");
+            return;
+        }
+
+        Goal goal = _goals[index - 1];
+        Console.Write($"Enter new name for '{goal.Name}' (or press Enter to keep it unchanged): ");
+        string newName = Console.ReadLine();
+        if (string.IsNullOrWhiteSpace(newName)) newName = goal.Name;
+
+        int newPoints = GetValidPoints($"Enter new points for '{goal.Name}' (or press Enter to keep {goal.Points}): ");
+        if (newPoints == 0) newPoints = goal.Points;
+
+        Console.Write($"Enter new category for '{goal.Name}' (or press Enter to keep {goal.Category}): ");
+        string newCategory = Console.ReadLine();
+        if (string.IsNullOrWhiteSpace(newCategory)) newCategory = goal.Category;
+
+        Console.WriteLine($"Enter new priority (High/Medium/Low) (or press Enter to keep {goal.GoalPriority}): ");
+        Priority newPriority;
+        if (!Enum.TryParse(Console.ReadLine(), true, out newPriority))
+        {
+            newPriority = goal.GoalPriority;
+        }
+
+        goal.EditGoal(newName, newPoints, newCategory, newPriority);
+        Console.WriteLine("Goal updated successfully.");
     }
 
     private void DeleteGoalPrompt()
     {
         DisplayGoals();
-        Console.Write("Enter the index of the goal to delete: ");
-        int index = int.Parse(Console.ReadLine()) - 1;
-        DeleteGoal(index);
-    }
-
-    private void SaveGoalsPrompt()
-    {
-        Console.Write("Enter filename to save goals: ");
-        string filename = Console.ReadLine();
-        SaveGoals(filename);
-    }
-
-    private void LoadGoalsPrompt()
-    {
-        Console.Write("Enter filename to load goals: ");
-        string filename = Console.ReadLine();
-        LoadGoals(filename);
-    }
-
-    private int GetValidPoints(string prompt) // Helper method for input validation
-    {
-        int points;
-        while (true)
+        Console.Write("Enter the goal index to delete: ");
+        int index = int.Parse(Console.ReadLine());
+        if (index < 1 || index > _goals.Count)
         {
-            Console.Write(prompt);
-            if (int.TryParse(Console.ReadLine(), out points) && points >= 0)
-            {
-                break;
-            }
-            Console.WriteLine("Please enter a valid non-negative number for points.");
+            Console.WriteLine("Invalid index. Please try again.");
+            return;
         }
-        return points;
+        _goals.RemoveAt(index - 1);
+        Console.WriteLine("Goal deleted successfully.");
     }
 }
 
@@ -424,7 +406,28 @@ class Program
 {
     static void Main(string[] args)
     {
-        GoalTracker tracker = new GoalTracker();
+        GoalTracker tracker = null;
+
+        Console.WriteLine("Do you want to load goals from a file? (yes/no)");
+        if (Console.ReadLine().ToLower() == "yes")
+        {
+            tracker = GoalTracker.LoadFromFile("goals.json");
+            if (tracker == null)
+            {
+                tracker = new GoalTracker();
+            }
+        }
+        else
+        {
+            tracker = new GoalTracker();
+        }
+
         tracker.DisplayMenu();
+
+        Console.WriteLine("Do you want to save your goals to a file? (yes/no)");
+        if (Console.ReadLine().ToLower() == "yes")
+        {
+            tracker.SaveToFile("goals.json");
+        }
     }
 }
